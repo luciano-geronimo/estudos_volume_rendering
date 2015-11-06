@@ -2,12 +2,24 @@
 #include <gl/glew.h>
 #include <gl/glut.h>
 #include <exception>
-
+#include <string>
+#include <iostream>
 #include <vector>
+#include <sstream>
+#include <fstream>
 //ponteiro para os dados do buffer
 GLuint vertex_array;
 GLfloat* vertex_buffer_data = nullptr;
 GLushort* index_buffer_data = nullptr;
+//Compila o shader do tipo dado, usando o código fonte dado e retorna o 
+//id do shader
+GLuint compile_shader_object(GLenum type, const std::string sourceCode);
+//Mecanismos para pegar o log do shader program passado como param.
+std::string get_shader_log(GLuint id);
+//checa por erros de opengl e lança exceção caso tenha
+void check_error();
+//Carrega textos como strings de c++
+std::string load_text(const char* path);
 //Define a função que vai tratar do evento de exibição
 void my_display_callback();
 //define a funcão que vai tratar do evento de teclado.
@@ -15,12 +27,17 @@ void my_keyboard_callback(unsigned char key, int x, int y);
 //inicialização da geometria. A flag controla se já foi inicializada, a init_geometry faz a inicialização.
 bool is_geometria_initialized = false;
 bool init_geometry();
+//Faz a carga dos shaders
+void load_shaders();
+//ponteiro pro programa do shader
+GLuint shader_program = 0;
+
 //Funcão de entrada do programa - cria os contextos da Glut, inicializa a Glew e seta os callbacks
 //do ciclo de vida da Glut.
 int main(int argc, char *argv[])
 {
 	glutInit(&argc, argv);//Inicialização
-	glutInitDisplayMode(GLUT_RGBA | GLUT_DOUBLE | GLUT_DEPTH);//Setagem do modo de tela
+	glutInitDisplayMode(GLUT_RGBA | GLUT_DOUBLE);//Setagem do modo de tela
 	//tamanho, posição e nome da janela
 	glutInitWindowSize(500, 500);
 	glutInitWindowPosition(0, 0);
@@ -40,18 +57,44 @@ void my_display_callback()
 	if (!is_geometria_initialized)
 		is_geometria_initialized = init_geometry();
 	//Limpa a tela
-	glClearColor(0.2, 0.2, 0.2, 1);
-	//faz a passagem do backbuffer pro frontbuffer
-	glutSwapBuffers();
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 	//envia um evento de exibição
 	glutPostRedisplay();
+	//faz a passagem do backbuffer pro frontbuffer
+	glutSwapBuffers();
+
 }
 void my_keyboard_callback(unsigned char key, int x, int y)
 {
 	
 }
+void load_shaders()
+{
+	//carrega o vertex shader
+	std::string vs_text = load_text("vertexShader.txt");
+	GLuint vs_id = 0;
+	vs_id = compile_shader_object(GL_VERTEX_SHADER, vs_text);
+	//carrega o fragment shader
+	std::string fs_text = load_text("fragmentShader.txt");
+	GLuint fs_id = 0;
+	fs_id = compile_shader_object(GL_FRAGMENT_SHADER, fs_text);
+	//linka
+	shader_program = glCreateProgram();
+	glAttachShader(shader_program, vs_id);
+	glAttachShader(shader_program, fs_id);
+	glLinkProgram(shader_program);
+	GLint is_ok = -1;
+	glGetProgramiv(shader_program, GL_LINK_STATUS, &is_ok);
+	if (!is_ok)
+	{
+		std::string erro = get_shader_log(shader_program);
+		std::cout << erro << std::endl;
+	}
+}
 bool init_geometry()
 {
+	load_shaders();
 	const int numero_de_triangulos = 2;
 	//Define os vértices e a relação entre eles. Os vértices são usados pelo 
 	//vertex shader enquanto a ordem dos mesmos é usada pra gerar geometria no
@@ -61,11 +104,11 @@ bool init_geometry()
 	//ponteiros de baixo nível no passo final, o envio pra placa de vídeo.
 	//Define os vértices
 	std::vector<GLfloat> lst_vertex_data; 
-	int z = 0;
-	for (int i = 0; i < numero_de_triangulos; i++)
+	float z = 0;
+	for (float i = 0; i < numero_de_triangulos; i = i+1)
 	{
-		auto size = 1;
-		if (i%2)
+		float size = 1;
+		if (((int)i)%2)
 		{
 			lst_vertex_data.push_back(-size); lst_vertex_data.push_back(-size); lst_vertex_data.push_back(z);
 			lst_vertex_data.push_back(-size); lst_vertex_data.push_back(size); lst_vertex_data.push_back(z);
@@ -83,7 +126,7 @@ bool init_geometry()
 	std::copy(lst_vertex_data.begin(), lst_vertex_data.end(), vertex_buffer_data);
 	//define a lista de índices
 	std::vector<GLushort> lst_index_data;
-	for (int i = 0; i < lst_vertex_data.size() / 3; i++)//dividido por 3 pq cada vértice ocupa 3 elementos no vetor e estou criando 1 indice / vertice.
+	for (unsigned int i = 0; i < lst_vertex_data.size() / 3; i++)//dividido por 3 pq cada vértice ocupa 3 elementos no vetor e estou criando 1 indice / vertice.
 	{
 		lst_index_data.push_back(i);
 	}
@@ -103,7 +146,7 @@ bool init_geometry()
 	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);
 	glBufferData(GL_ARRAY_BUFFER, sizeof(float) * lst_vertex_data.size(), vertex_buffer_data, GL_STATIC_DRAW);
 	//Seta como o buffer será passado pro vertex shader
-	GLint pos_attrib = glGetAttribLocation(shader_progream, "vertex");//pega o id da variável de shader 
+	GLint pos_attrib = glGetAttribLocation(shader_program, "vertex");//pega o id da variável de shader 
 	glEnableVertexAttribArray(pos_attrib);//ativa a array pro vertex - o attrib receberá a lista de vertices definida usando o VBO atual
 	glVertexAttribPointer(pos_attrib, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);//passa pro atributo.
 	//Agora é hora de setar os índices
@@ -111,5 +154,74 @@ bool init_geometry()
 	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(GLushort)*lst_index_data.size(), index_buffer_data, GL_STATIC_DRAW);
 	//acabei de trabalhar com o VAO, desvinculo-o
 	glBindVertexArray(0);
-	return false;
+	return true;
+}
+std::string load_text(const char* path)
+{
+	std::stringstream textStream;
+	std::string ln;
+	std::ifstream file;
+	file.open(path);
+	if (file.is_open())
+	{
+		while (std::getline(file, ln))
+		{
+			textStream << ln << std::endl;
+		}
+		file.close();
+	}
+	else
+	{
+		std::string str = "arquivo nao encontrado - ";
+		str += path;
+		throw std::exception(str.c_str());
+	}
+	return textStream.str();
+}
+void check_error(){
+	GLenum error = glGetError();
+	switch (error){
+	case 0: return;
+	case GL_INVALID_ENUM: throw std::exception("GL error: Invalid enum"); break;
+	case GL_INVALID_VALUE: throw std::exception("GL error : Invalid value"); break;
+	case GL_INVALID_OPERATION: throw std::exception("GL error: Invalid operation"); break;
+	case GL_STACK_OVERFLOW: throw std::exception("GL error: Stack overflow"); break;
+	case GL_STACK_UNDERFLOW: throw std::exception("GL error: Stack underflow"); break;
+	case GL_OUT_OF_MEMORY: throw std::exception("GL error: Out of memory"); break;
+	case GL_TABLE_TOO_LARGE: throw std::exception("GL error: Table too large"); break;
+	default: throw std::exception("GL error: Unknown");
+	}
+}
+std::string get_shader_log(GLuint id)
+{
+	GLint logSize;
+	char* log;
+	glGetShaderiv(id, GL_INFO_LOG_LENGTH, &logSize);//pega o tamanho do log do shader
+	log = new char[logSize];
+	glGetShaderInfoLog(id, logSize, NULL, log);//pega a string.
+	std::string result(log);
+	return result;
+}
+GLuint compile_shader_object(GLenum type, const std::string sourceCode)
+{
+	GLuint shader;
+	GLint shaderOK;
+
+	const char* __src = sourceCode.c_str();
+	const GLchar** src = (const GLchar**)&__src;
+	shader = glCreateShader(type);//cria o shader vazio.
+	
+	glShaderSource(shader, 1, src, nullptr);//Seta o código fonte
+	check_error();
+	glCompileShader(shader);
+	check_error();
+	//vê se compilou. Se não compilou mostra porque não compilou.
+	glGetShaderiv(shader, GL_COMPILE_STATUS, &shaderOK);
+	if (!shaderOK)
+	{
+		std::string erro = get_shader_log(shader);
+		std::cout << erro << std::endl;
+		throw std::exception(erro.c_str());
+	}
+	return shader;
 }
