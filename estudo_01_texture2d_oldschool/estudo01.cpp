@@ -7,6 +7,16 @@
 #include <vector>
 #include <sstream>
 #include <fstream>
+
+#include <vtkSmartPointer.h>
+#include <vtkPerspectiveTransform.h>
+#include <vtkTransform.h>
+
+//As matrizes
+vtkSmartPointer<vtkPerspectiveTransform> projecao_matrix;
+vtkSmartPointer<vtkPerspectiveTransform> view_matrix;
+vtkSmartPointer<vtkTransform> model_matrix;
+GLuint mvp_matrix_id;
 //ponteiro para os dados do buffer
 GLuint vertex_array;
 GLfloat* vertex_buffer_data = nullptr;
@@ -59,6 +69,33 @@ void my_display_callback()
 	//Limpa a tela
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+	//Pega as matrizes e as passa pro shaders.
+	vtkMatrix4x4* pm = projecao_matrix->GetMatrix();
+	vtkMatrix4x4* vm = view_matrix->GetMatrix();
+	vtkMatrix4x4* mm = model_matrix->GetMatrix();
+	//mvp
+	vtkMatrix4x4* result = vtkMatrix4x4::New();
+	vtkMatrix4x4::Multiply4x4(mm, vm, result);
+	vtkMatrix4x4::Multiply4x4(result, pm, result);
+	//copia
+	double m_result[16];
+	vtkMatrix4x4::DeepCopy(m_result, result);
+	//binda o shader
+	glUseProgram(shader_program);
+
+	//passa a matriz pro shader
+	glUniformMatrix4fv(mvp_matrix_id, 1, GL_TRUE, (float*)&m_result);
+	//desenha o vao
+	glBindVertexArray(vertex_array);
+	glDrawElementsBaseVertex(GL_TRIANGLES, 1000000, GL_UNSIGNED_SHORT, nullptr, 0);
+	glBindVertexArray(0);
+	//mvp_matrix_id
+	
+	//
+	//glBindVertexArray(this->vertex_array);
+	//glDrawElementsBaseVertex(GL_TRIANGLES, 1000000, GL_UNSIGNED_SHORT, nullptr, 0);
+	//glBindVertexArray(0);
+	//Desenha.
 	//envia um evento de exibição
 	glutPostRedisplay();
 	//faz a passagem do backbuffer pro frontbuffer
@@ -91,9 +128,29 @@ void load_shaders()
 		std::string erro = get_shader_log(shader_program);
 		std::cout << erro << std::endl;
 	}
+	//guarda o id dos uniforms.
+	mvp_matrix_id = glGetUniformLocationARB(shader_program, "mvp");
+	check_error();
+	if (mvp_matrix_id == -1)
+	{
+		std::string erro = "a uniform mvp nao está ativa.";
+		std::cout << erro << std::endl;
+		throw std::exception(erro.c_str());
+	}
 }
 bool init_geometry()
 {
+	//cria as matrizes
+	projecao_matrix = vtkSmartPointer<vtkPerspectiveTransform>::New();
+	projecao_matrix->Ortho(-2.0, 2.0, -2.0, 2.0, -2, 2);
+	projecao_matrix->Update();
+	view_matrix = vtkSmartPointer<vtkPerspectiveTransform>::New();
+	view_matrix->SetupCamera(0, 0, 2, 0, 0, 0, 0, 1, 0);
+	view_matrix->Update();
+	model_matrix = vtkSmartPointer<vtkTransform>::New();
+	model_matrix->Identity();
+	model_matrix->Update();
+	//cria os shaders.
 	load_shaders();
 	const int numero_de_triangulos = 2;
 	//Define os vértices e a relação entre eles. Os vértices são usados pelo 
